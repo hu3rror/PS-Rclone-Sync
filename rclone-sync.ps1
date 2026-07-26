@@ -1,128 +1,172 @@
 <#
- Runs `rclone sync` to sync folders. / 运行 `rclone sync` 来同步文件夹。
+.SYNOPSIS
+    Runs rclone sync tasks defined in a JSON configuration file.
+.DESCRIPTION
+    Reads backup configuration settings from a JSON file, executes rclone sync commands,
+    manages log files, and automatically cleans up empty logs and old historical log files.
 #>
 
-# ------ main Start / 主程序开始------
-
-# Set/get config file path / 设置/获取配置文件路径
+[CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
     [string]$ConfigFile = "config.json",
-    [Parameter()]
+
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
     [string]$RclonePath = "rclone",
-    [Parameter()]
+
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
     [string]$LogFolderPath = (Join-Path -Path $PSScriptRoot -ChildPath "logs")
 )
 
-# check if rclone is installed / 检查是否安装了 rclone
-if (-not (Get-Command $RclonePath -ErrorAction SilentlyContinue)) {
-    Write-Error "rclone is not installed, please install rclone first. / rclone 未安装, 请先安装 rclone。"
-    return
-}
-
-# create log folder / 创建日志文件夹
-if (-not (Test-Path -Path $LogFolderPath -PathType Container)) {
-    New-Item -Path $LogFolderPath -ItemType Directory | Out-Null
-}
-
-# check if config.json file exists / 检查 config.json 文件是否存在
-if (-not (Test-Path -Path $ConfigFile -PathType Leaf)) {
-    Write-Error "cannot find sync config file：$ConfigFile. / 找不到同步配置文件：$ConfigFile。"
-    return
-}
-
-# read sync config from config.json file and convert to object / 从 config.json 文件读取同步配置并转换为对象
-$syncConfig = Get-Content -Path $ConfigFile | ConvertFrom-Json
-
-# ------ main End / 主程序结束------
-
-
-# ------ Sync-Folders Function Start / 同步文件夹函数开始 ------
-function Sync-Folders {
+function Invoke-RcloneSyncTask {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
-        [string]$destName,
+        [ValidateNotNullOrEmpty()]
+        [string]$LocalFolder,
+
         [Parameter(Mandatory = $true)]
-        [string]$localFolder,
+        [ValidateNotNullOrEmpty()]
+        [string]$DestName,
+
         [Parameter(Mandatory = $true)]
-        [string]$destFolder,
+        [ValidateNotNullOrEmpty()]
+        [string]$DestFolder,
+
         [Parameter()]
-        [string]$taskName,
+        [string]$TaskName = "Untitled",
+
         [Parameter()]
-        [string[]]$exclude = @(),
+        [string[]]$Exclude = @(),
+
         [Parameter()]
-        [string]$rcloneFlags = "",
+        [string]$RcloneFlags = "",
+
         [Parameter()]
-        [switch]$showCommand,
+        [switch]$ShowCommand,
+
         [Parameter()]
-        [int]$maximumLogFiles = 15
+        [int]$MaximumLogFiles = 15,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RclonePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LogFolderPath
     )
 
-    # rclone sync folder command / rclone 同步文件夹命令
-    $rcloneCommand = "$RclonePath sync $localFolder `"${destName}:$destFolder`""
+    $timeStamp = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
+    $logFileName = "${TaskName}.${DestName}.${timeStamp}.log"
+    $logFile = Join-Path -Path $LogFolderPath -ChildPath $logFileName
 
-    # add exclude parameter / 添加排除参数
-    $excludeArgs = $exclude | ForEach-Object { "--exclude `"$_`"" }    # convert array to comma separated string / 将数组转换为逗号分隔的字符串
+    # Construct arguments list safely without Invoke-Expression
+    $cmdArgs = [System.Collections.Generic.List[string]]::new()
+    $cmdArgs.Add("sync")
+    $cmdArgs.Add($LocalFolder)
+    $cmdArgs.Add("${DestName}:${DestFolder}")
 
-    if ($excludeArgs.Length -gt 0) {
-        $rcloneCommand += " $($excludeArgs -join " ")"
+    foreach ($ex in $Exclude) {
+        if (-not [string]::IsNullOrWhiteSpace($ex)) {
+            $cmdArgs.Add("--exclude")
+            $cmdArgs.Add($ex)
+        }
     }
 
-    # add --log-file parameter / 添加 --log-file 参数
-    $logFile = Join-Path -Path $LogFolderPath -ChildPath "Untitled.$destName.$(Get-Date -Format 'yyyy-MM-dd-HH-mm-ss').log"
+    $cmdArgs.Add("--log-file=$logFile")
 
-    if ($taskName.Length -gt 0) {
-        $logFile = Join-Path -Path $LogFolderPath -ChildPath "$taskName.$destName.$(Get-Date -Format 'yyyy-MM-dd-HH-mm-ss').log"    # define log file name format / 定义日志文件名格式
+    if (-not [string]::IsNullOrWhiteSpace($RcloneFlags)) {
+        $flagTokens = $RcloneFlags -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        foreach ($token in $flagTokens) {
+            $cmdArgs.Add($token)
+        }
     }
 
-    $rcloneCommand += " --log-file=$logFile"
-
-    # add more rclone flags options / 添加更多 rclone 参数选项
-    if ($rcloneFlags.Length -gt 0) {
-        $rcloneCommand += " $rcloneFlags"
+    if ($ShowCommand) {
+        $displayArgs = $cmdArgs | ForEach-Object {
+            if ($_ -match '\s') { "`"$_`"" } else { $_ }
+        }
+        Write-Host "$RclonePath $($displayArgs -join ' ')"
     }
 
-    # show full rclone command / 显示完整的 rclone 命令
-    if ($showCommand) {
-        Write-Host $rcloneCommand
+    # Execute rclone safely using the call operator
+    try {
+        & $RclonePath @cmdArgs
+    }
+    catch {
+        Write-Error "Failed to execute rclone for task '${TaskName}': $_"
+        return
     }
 
-    # run full rclone command / 运行完整的 rclone 命令
-    Invoke-Expression $rcloneCommand
-
-    # check if log file is empty or first line is "INFO  : There was nothing to transfer" and delete if true / 检查日志文件是否为空或第一行是"INFO  : There was nothing to transfer",如果是则删除
-    $logContent = Get-Content -Path $logFile -ErrorAction SilentlyContinue
-    if ($logContent -and $logContent[0] -like "*INFO  : There was nothing to transfer*") {
-        Remove-Item -Path $logFile -Force
-    } elseif ((Get-Content $logFile).Length -eq 0) {
-        Remove-Item -Path $logFile -Force
+    # Remove empty or zero-transfer log files safely
+    if (Test-Path -Path $logFile -PathType Leaf) {
+        $fileItem = Get-Item -Path $logFile -ErrorAction SilentlyContinue
+        if ($fileItem) {
+            if ($fileItem.Length -eq 0) {
+                Remove-Item -Path $logFile -Force -ErrorAction SilentlyContinue
+            }
+            else {
+                # Force array conversion to ensure line-level indexing
+                $logLines = @(Get-Content -Path $logFile -ErrorAction SilentlyContinue)
+                if ($logLines.Count -gt 0 -and $logLines[0] -like "*INFO  : There was nothing to transfer*") {
+                    Remove-Item -Path $logFile -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
-    # clean log files / 清理日志文件
-    $logFiles = Get-ChildItem -Path $LogFolderPath -Filter "$taskName.$destName.*.log" -File | Sort-Object LastWriteTime
-    if ($logFiles.Count -gt $maximumLogFiles) {
-        $oldLogFiles = $logFiles[0..($logFiles.Count - $maximumLogFiles - 1)]
-        foreach ($oldLogFile in $oldLogFiles) {
-            Remove-Item -Path $oldLogFile.FullName -Force
+    # Retention cleanup for log files
+    if ($MaximumLogFiles -gt 0) {
+        $logFilter = "${TaskName}.${DestName}.*.log"
+        Get-ChildItem -Path $LogFolderPath -Filter $logFilter -File -ErrorAction SilentlyContinue |
+            Sort-Object -Property LastWriteTime |
+            Select-Object -SkipLast $MaximumLogFiles |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ------ Main Execution Flow ------
+try {
+    # Check if rclone executable exists
+    if (-not (Get-Command -Name $RclonePath -ErrorAction SilentlyContinue)) {
+        throw "rclone executable not found at path: '$RclonePath'. Please ensure rclone is installed."
+    }
+
+    # Ensure log directory exists
+    if (-not (Test-Path -Path $LogFolderPath -PathType Container)) {
+        New-Item -Path $LogFolderPath -ItemType Directory -Force | Out-Null
+    }
+
+    # Verify configuration file path
+    if (-not (Test-Path -Path $ConfigFile -PathType Leaf)) {
+        throw "Sync configuration file not found: '$ConfigFile'."
+    }
+
+    # Load and parse configuration file
+    $rawJson = Get-Content -Path $ConfigFile -Raw -ErrorAction Stop
+    $syncConfig = $rawJson | ConvertFrom-Json -ErrorAction Stop
+
+    # Process each enabled sync task
+    foreach ($config in $syncConfig) {
+        if ($config.enabled) {
+            $taskNameParam = if ([string]::IsNullOrWhiteSpace($config.taskName)) { "Untitled" } else { $config.taskName }
+
+            Invoke-RcloneSyncTask `
+                -LocalFolder $config.localFolder `
+                -DestName $config.destName `
+                -DestFolder $config.destFolder `
+                -TaskName $taskNameParam `
+                -Exclude $config.exclude `
+                -RcloneFlags $config.rcloneFlags `
+                -ShowCommand:([bool]$config.showCommand) `
+                -MaximumLogFiles ([int]$config.maximumLogFiles) `
+                -RclonePath $RclonePath `
+                -LogFolderPath $LogFolderPath
         }
     }
 }
-
-# ------ Sync-Folders Function End / 同步文件夹函数结束 ------
-
-# ------ traverse sync config / 遍历同步配置 ------
-foreach ($config in $syncConfig) {
-    if ($config.enabled) {
-        Sync-Folders `
-            -localFolder $config.localFolder `
-            -destName $config.destName `
-            -destFolder $config.destFolder `
-            -taskName $config.taskName `
-            -exclude $config.exclude `
-            -rcloneFlags $config.rcloneFlags `
-            -showCommand:$config.showCommand `
-            -maximumLogFiles $config.maximumLogFiles
-    }
+catch {
+    Write-Error "Script execution failed: $_"
 }
-
-# ------ traverse sync config end / 遍历同步配置结束 ------
