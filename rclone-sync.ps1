@@ -11,19 +11,26 @@ param (
     [string]$ConfigFile,
 
     [Parameter(Mandatory = $false)]
-    [ValidateNotNullOrEmpty()]
-    [string]$ConfigsFolder = (Join-Path -Path $PSScriptRoot -ChildPath "configs"),
+    [string]$ConfigsFolder,
 
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
     [string]$RclonePath = "rclone",
 
     [Parameter(Mandatory = $false)]
-    [ValidateNotNullOrEmpty()]
-    [string]$LogFolderPath = (Join-Path -Path $PSScriptRoot -ChildPath "logs")
+    [string]$LogFolderPath
 )
 
 try {
+    # Resolve default paths inside script body for PowerShell 5.1 compatibility
+    if ([string]::IsNullOrWhiteSpace($ConfigsFolder)) {
+        $ConfigsFolder = Join-Path -Path $PSScriptRoot -ChildPath "configs"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($LogFolderPath)) {
+        $LogFolderPath = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+    }
+
     # Import local RcloneSync module
     $modulePath = Join-Path -Path $PSScriptRoot -ChildPath "RcloneSync.psm1"
     Import-Module -Name $modulePath -Force

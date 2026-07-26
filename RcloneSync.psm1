@@ -108,11 +108,13 @@ function Invoke-RcloneSync {
         [string]$RclonePath = "rclone",
 
         [Parameter(Mandatory = $false)]
-        [ValidateNotNullOrEmpty()]
-        [string]$LogFolderPath = (Join-Path -Path $PSScriptRoot -ChildPath "logs")
+        [string]$LogFolderPath
     )
 
     process {
+        if ([string]::IsNullOrWhiteSpace($LogFolderPath)) {
+            $LogFolderPath = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+        }
         # Normalize input pipeline object to SyncTaskConfig
         [SyncTaskConfig]$config = $null
         if ($TaskConfig -is [SyncTaskConfig]) {
@@ -244,8 +246,12 @@ function Show-RcloneSyncMenu {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $false)]
-        [string]$FolderPath = (Join-Path -Path $PSScriptRoot -ChildPath "configs")
+        [string]$FolderPath
     )
+
+    if ([string]::IsNullOrWhiteSpace($FolderPath)) {
+        $FolderPath = Join-Path -Path $PSScriptRoot -ChildPath "configs"
+    }
 
     $files = @()
     if (Test-Path -Path $FolderPath -PathType Container) {
