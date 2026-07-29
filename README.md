@@ -1,49 +1,113 @@
-# Rclone Sync Script
+# Rclone Sync Module & Runner
 
 English | [中文](README_zh-CN.md)
 
-This PowerShell script is designed to automate the process of syncing folders using the `rclone` command-line tool.
+A strongly-typed, modular PowerShell automation solution for managing and executing `rclone` sync tasks with structured JSON logging, interactive task menus, fail-fast validation, and native pipeline support.
 
-## Features
+## Key Features
 
-- Supports multiple sync configurations defined in a JSON config file
-- Automatically creates a log folder and log files for each sync task
-- Cleans up old log files based on a configurable maximum number of files
-- Provides options to exclude specific files/folders from the sync process
-- Allows customization of `rclone` flags for each sync task
+- **Class-Based Architecture**: Strongly-typed `SyncTaskConfig` configuration object with fail-fast path and parameter validation.
+- **PowerShell Module & Pipeline Support**: Core functionality exported as reusable functions (`Get-RcloneSyncConfig`, `Invoke-RcloneSync`, `Show-RcloneSyncMenu`).
+- **Interactive CLI Menu**: Auto-discovers `.json` task files in the `configs/` folder and root script directory for easy interactive selection.
+- **Native WhatIf & Confirm Support**: Supports standard PowerShell `-WhatIf` and `-Confirm` switches for dry-run safety checks.
+- **Structured JSON Logging & Auto-Cleanup**: 
+  - Enforces `--use-json-log` for structured output.
+  - Automatically deletes empty log files or logs indicating "nothing to transfer".
+  - Retains log files up to the configured `maximumLogFiles` limit per task.
+
+## Repository Structure
+
+```text
+├── configs/                # Storage directory for task JSON configuration files
+├── config.json.example     # Configuration file template
+├── rclone-sync.ps1         # CLI runner script
+├── RcloneSync.psd1         # PowerShell Module Manifest
+├── RcloneSync.psm1         # Core PowerShell Module Implementation
+├── README.md               # English documentation
+└── README_zh-CN.md         # Chinese documentation
+```
 
 ## Prerequisites
 
-1. Install `rclone` on your system. You can download it from the official website: [https://rclone.org/downloads/](https://rclone.org/downloads/)
-2. Create a `config.json` file in the same directory as the script, with the sync configurations.
+1. **PowerShell**: Version 5.1 or higher (PowerShell Core 7+ recommended).
+2. **Rclone**: Installed and added to system PATH, or specified explicitly via `-RclonePath`.
 
-## Usage
+## Quick Start
 
-1. Open a PowerShell terminal and navigate to the directory where the script is located.
-2. Run the script with the following command:
+### 1. Interactive Execution (Default)
 
-   ```powershell
-   .\rclone-sync.ps1 -ConfigFile "config.json"
-   ```
+Run the script without arguments to open the interactive configuration selection menu:
 
-   This will execute the sync tasks defined in the `config.json` file.
+```powershell
+.\rclone-sync.ps1
+```
 
-3. Optionally, you can specify the path to the `rclone` executable and the log folder path:
+### 2. Run Specific Configuration File
 
-   ```powershell
-   .\rclone-sync.ps1 -ConfigFile "config.json" -RclonePath "C:\Program Files\rclone\rclone.exe" -LogFolderPath "C:\Logs"
-   ```
+Specify a JSON configuration file directly:
 
-## Configuration
+```powershell
+.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json"
+```
 
-The sync configurations are defined in the `config.json` file, which should be located in the same directory as the script. The file should contain an array of sync configurations, with the following properties:
+### 3. Dry-Run / Safety Check (-WhatIf)
 
-- `enabled`: A boolean value indicating whether the sync task is enabled.
-- `localFolder`: The local folder path to be synced.
-- `destName`: The name of the remote destination (as defined in the `rclone` configuration).
-- `destFolder`: The remote folder path to sync to.
-- `taskName`: (Optional) A name for the sync task, used for log file naming.
-- `exclude`: (Optional) An array of file/folder patterns to exclude from the sync process.
-- `rcloneFlags`: (Optional) Additional `rclone` flags to be used for the sync task.
-- `showCommand`: (Optional) A boolean value indicating whether to display the full `rclone` command before execution.
-- `maximumLogFiles`: (Optional) The maximum number of log files to keep for each sync task.
+Test execution logic without making any filesystem changes:
+
+```powershell
+.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -WhatIf
+```
+
+### 4. Custom Rclone Executable & Log Location
+
+```powershell
+.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -RclonePath "C:\Tools\rclone.exe" -LogFolderPath "D:\Logs\rclone"
+```
+
+### 5. Advanced PowerShell Pipeline Usage
+
+You can import the module directly and chain exported cmdlets:
+
+```powershell
+Import-Module .\RcloneSync.psd1
+
+# Load configs and stream to sync engine via pipeline
+Get-RcloneSyncConfig -Path "configs/my-backup.json" | Invoke-RcloneSync -RclonePath "rclone"
+```
+
+## Configuration File Schema
+
+Configurations are stored as a JSON array of task objects. Refer to `config.json.example` for details:
+
+```json
+[
+    {
+        "taskName": "Books",
+        "localFolder": "C:\\Users\\username\\Books",
+        "destName": "MyOneDrive",
+        "destFolder": "/Backups/Books",
+        "exclude": [
+            "/*.txt",
+            "/.git/"
+        ],
+        "rcloneFlags": "--dry-run --progress --fast-list --transfers=8 --max-backlog=-1 --log-level=NOTICE",
+        "showCommand": true,
+        "maximumLogFiles": 15,
+        "enabled": true
+    }
+]
+```
+
+### Parameter Reference
+
+| Property | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `taskName` | `string` | `"Untitled"` | Descriptive task name, also used for log file prefix. |
+| `localFolder` | `string` | *(Required)* | Local source path to sync. Validated on execution. |
+| `destName` | `string` | *(Required)* | Name of the configured rclone remote endpoint. |
+| `destFolder` | `string` | *(Required)* | Remote directory path. |
+| `exclude` | `string[]` | `[]` | Array of exclude patterns passed as `--exclude` options. |
+| `rcloneFlags` | `string` | `""` | Additional flags forwarded directly to `rclone`. |
+| `showCommand` | `bool` | `true` | Print the generated `rclone` execution string before running. |
+| `maximumLogFiles` | `int` | `15` | Maximum retained log files per task (`0` disables retention cleanup). |
+| `enabled` | `bool` | `true` | Toggle task execution (`false` skips execution). |
