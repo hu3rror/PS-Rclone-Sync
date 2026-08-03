@@ -20,7 +20,7 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 ```text
 ├── configs/                # Storage directory for task JSON configuration files
 ├── config.json.example     # Configuration file template
-├── rclone-sync.ps1         # CLI runner script
+├── RcloneSync.ps1         # CLI runner script
 ├── RcloneSync.psd1         # PowerShell Module Manifest
 ├── RcloneSync.psm1         # Core PowerShell Module Implementation
 ├── README.md               # English documentation
@@ -39,7 +39,7 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 Run the script without arguments to open the interactive configuration selection menu:
 
 ```powershell
-.\rclone-sync.ps1
+.\RcloneSync.ps1
 ```
 
 ### 2. Run Specific Configuration File
@@ -47,7 +47,7 @@ Run the script without arguments to open the interactive configuration selection
 Specify a JSON configuration file directly:
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json"
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json"
 ```
 
 ### 3. Dry-Run / Safety Check (-WhatIf)
@@ -55,13 +55,13 @@ Specify a JSON configuration file directly:
 Test execution logic without making any filesystem changes:
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -WhatIf
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json" -WhatIf
 ```
 
 ### 4. Custom Rclone Executable & Log Location
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -RclonePath "C:\Tools\rclone.exe" -LogFolderPath "D:\Logs\rclone"
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json" -RclonePath "C:\Tools\rclone.exe" -LogFolderPath "D:\Logs\rclone"
 ```
 
 ### 5. Advanced PowerShell Pipeline Usage

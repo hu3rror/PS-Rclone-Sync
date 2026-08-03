@@ -20,7 +20,7 @@
 ```text
 ├── configs/                # JSON 任务配置文件存放目录
 ├── config.json.example     # 任务配置模板文件
-├── rclone-sync.ps1         # CLI 运行入口脚本
+├── RcloneSync.ps1         # CLI 运行入口脚本
 ├── RcloneSync.psd1         # PowerShell 模块清单
 ├── RcloneSync.psm1         # 模块核心逻辑实现
 ├── README.md               # 英文文档
@@ -39,7 +39,7 @@
 直接运行脚本启动交互式菜单选单：
 
 ```powershell
-.\rclone-sync.ps1
+.\RcloneSync.ps1
 ```
 
 ### 2. 指定配置文件运行
@@ -47,7 +47,7 @@
 通过 `-ConfigFile` 显式指定需要执行的 JSON 配置文件：
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json"
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json"
 ```
 
 ### 3. 预检模式（-WhatIf）
@@ -55,13 +55,13 @@
 在不产生实际文件变更的情况下验证调度逻辑：
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -WhatIf
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json" -WhatIf
 ```
 
 ### 4. 自定义 Rclone 路径与日志路径
 
 ```powershell
-.\rclone-sync.ps1 -ConfigFile "configs/my-backup.json" -RclonePath "C:\Tools\rclone.exe" -LogFolderPath "D:\Logs\rclone"
+.\RcloneSync.ps1 -ConfigFile "configs/my-backup.json" -RclonePath "C:\Tools\rclone.exe" -LogFolderPath "D:\Logs\rclone"
 ```
 
 ### 5. 模块的高级管道用法
