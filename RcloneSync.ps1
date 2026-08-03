@@ -27,10 +27,6 @@ try {
         $ConfigsFolder = Join-Path -Path $PSScriptRoot -ChildPath "configs"
     }
 
-    if ([string]::IsNullOrWhiteSpace($LogFolderPath)) {
-        $LogFolderPath = Join-Path -Path $PSScriptRoot -ChildPath "logs"
-    }
-
     # Import local RcloneSync module
     $modulePath = Join-Path -Path $PSScriptRoot -ChildPath "RcloneSync.psm1"
     Import-Module -Name $modulePath -Force

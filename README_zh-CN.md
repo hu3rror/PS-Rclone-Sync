@@ -14,6 +14,10 @@
   - 强制采用 `--use-json-log` 生成结构化日志。
   - 自动清理空日志文件或提示 "nothing to transfer" 的无变更日志。
   - 根据 `maximumLogFiles` 自动清理超期的历史日志。
+- **智能默认日志路径**：未指定 `-LogFolderPath` 时，模块自动选择：
+  1. 若 `$PSScriptRoot\logs` 存在且包含至少一个 `.log` 文件，则沿用此旧路径（向后兼容）；
+  2. 否则，使用用户级目录（Windows: `%APPDATA%\PS_RcloneSync\logs`；Unix: `~/.local/state/ps_rclonesync/logs`）；
+  3. 若用户目录创建失败，自动回退至临时目录（`$env:TEMP\RcloneSyncLogs`）并输出警告。
 
 ## 项目结构
 
@@ -33,6 +37,19 @@
 2. **Rclone**：已安装并配置至系统环境变量 PATH，或通过 `-RclonePath` 参数指定可执行文件路径。
 
 ## 使用指南
+
+### 命令行参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `-ConfigFile` | `string` | *(无)* | 指定单个 JSON 配置文件路径（若未指定，则进入交互菜单）。 |
+| `-ConfigsFolder` | `string` | `.\configs` | 交互菜单扫描的配置文件夹路径。 |
+| `-RclonePath` | `string` | `rclone` | rclone 可执行文件的路径或命令名。 |
+| `-LogFolderPath` | `string` | *(由模块决定)* | 日志输出目录。若不指定，模块将按“智能默认日志路径”规则自动选择。 |
+| `-WhatIf` | `switch` | `false` | 模拟执行，不产生实际文件变更。 |
+| `-Confirm` | `switch` | `$false` | 在执行前请求确认。 |
+
+> 提示：使用 `-Verbose` 可查看日志路径决策过程及详细运行信息。
 
 ### 1. 交互模式（默认）
 
@@ -111,3 +128,18 @@ Get-RcloneSyncConfig -Path "configs/my-backup.json" | Invoke-RcloneSync -RcloneP
 | `showCommand` | `bool` | `true` | 执行前是否在控制台打印生成的完整 `rclone` 命令。 |
 | `maximumLogFiles` | `int` | `15` | 每个任务保留的最大日志文件数量（`0` 表示不清理历史日志）。 |
 | `enabled` | `bool` | `true` | 任务开关（`false` 时跳过该任务）。 |
+
+## 日志管理
+
+- 默认日志目录由模块自动选择（参见“智能默认日志路径”）。
+- 每次同步产生一个独立日志文件，文件名格式：`<taskName>.<destName>.<时间戳>.log`。
+- 若同步无任何传输（即 rclone 输出 "There was nothing to transfer"），该日志文件会被自动删除，避免产生大量无意义文件。
+- 历史日志数量受 `maximumLogFiles` 控制，超出部分自动删除（按最后修改时间排序，保留最新文件）。
+- 若需永久保留日志，可将 `maximumLogFiles` 设为 `0`。
+- 通过 `-Verbose` 可实时查看日志文件写入路径。
+
+## 故障排除
+
+- **执行失败（`Cannot bind argument to parameter 'Path'`）**：通常因配置文件路径未正确传递，请检查 `-ConfigFile` 参数是否正确。
+- **日志未生成**：检查 `-LogFolderPath` 指定目录是否可写；若未指定，查看模块默认路径决策过程（使用 `-Verbose`）。
+- **权限错误**：若模块自动选择用户级目录，确保当前用户对该目录有写入权限；回退至临时目录后仍失败，会抛出终止异常，请检查临时目录可写性。

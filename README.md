@@ -10,10 +10,14 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 - **PowerShell Module & Pipeline Support**: Core functionality exported as reusable functions (`Get-RcloneSyncConfig`, `Invoke-RcloneSync`, `Show-RcloneSyncMenu`).
 - **Interactive CLI Menu**: Auto-discovers `.json` task files in the `configs/` folder and root script directory for easy interactive selection.
 - **Native WhatIf & Confirm Support**: Supports standard PowerShell `-WhatIf` and `-Confirm` switches for dry-run safety checks.
-- **Structured JSON Logging & Auto-Cleanup**: 
+- **Structured JSON Logging & Auto-Cleanup**:
   - Enforces `--use-json-log` for structured output.
   - Automatically deletes empty log files or logs indicating "nothing to transfer".
   - Retains log files up to the configured `maximumLogFiles` limit per task.
+- **Smart Default Log Path**: When `-LogFolderPath` is not specified, the module automatically selects:
+  1. The legacy `$PSScriptRoot\logs` folder **only if** it exists and contains at least one `.log` file (backward compatibility);
+  2. Otherwise, uses a user-level directory (Windows: `%APPDATA%\PS_RcloneSync\logs`; Unix: `~/.local/state/ps_rclonesync/logs`);
+  3. If the user-level directory cannot be created, falls back to the system temp directory (`$env:TEMP\RcloneSyncLogs`) with a warning.
 
 ## Repository Structure
 
@@ -33,6 +37,19 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 2. **Rclone**: Installed and added to system PATH, or specified explicitly via `-RclonePath`.
 
 ## Quick Start
+
+### Command-Line Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-ConfigFile` | `string` | *(none)* | Path to a single JSON configuration file. If omitted, interactive menu is launched. |
+| `-ConfigsFolder` | `string` | `.\configs` | Folder scanned for JSON configurations in interactive mode. |
+| `-RclonePath` | `string` | `rclone` | Path or command name of the rclone executable. |
+| `-LogFolderPath` | `string` | *(determined by module)* | Directory for log output. If not specified, the module applies the "smart default log path" logic. |
+| `-WhatIf` | `switch` | `false` | Simulate execution without making actual changes. |
+| `-Confirm` | `switch` | `$false` | Prompt for confirmation before each action. |
+
+> Tip: Use `-Verbose` to see the log path decision process and detailed runtime messages.
 
 ### 1. Interactive Execution (Default)
 
@@ -111,3 +128,18 @@ Configurations are stored as a JSON array of task objects. Refer to `config.json
 | `showCommand` | `bool` | `true` | Print the generated `rclone` execution string before running. |
 | `maximumLogFiles` | `int` | `15` | Maximum retained log files per task (`0` disables retention cleanup). |
 | `enabled` | `bool` | `true` | Toggle task execution (`false` skips execution). |
+
+## Log Management
+
+- Default log directory is automatically chosen by the module (see "Smart Default Log Path" above).
+- Each sync run produces a separate log file named `<taskName>.<destName>.<timestamp>.log`.
+- If sync results in "nothing to transfer", the log file is automatically removed to avoid clutter.
+- Historical logs are capped by `maximumLogFiles`; older files are deleted (by last write time, keeping newest).
+- Set `maximumLogFiles` to `0` to disable automatic cleanup.
+- Use `-Verbose` to monitor the exact log file path being written.
+
+## Troubleshooting
+
+- **Execution failure (`Cannot bind argument to parameter 'Path'`)**: Usually caused by an incorrect `-ConfigFile` path. Verify the provided path.
+- **No log generated**: Check write permissions for `-LogFolderPath`; if not specified, inspect the default path decision using `-Verbose`.
+- **Permission errors**: If the module selects a user-level directory, ensure the current user has write permissions. If fallback to temp also fails, the task will abort; check temp directory writability.

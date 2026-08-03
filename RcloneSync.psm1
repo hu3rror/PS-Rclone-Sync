@@ -213,8 +213,10 @@ function Invoke-RcloneSync {
     )
 
     process {
+        # Resolve default log folder if not specified
         if ([string]::IsNullOrWhiteSpace($LogFolderPath)) {
-            $LogFolderPath = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+            $LogFolderPath = Get-DefaultLogFolderPath
+            Write-Verbose "Using default log folder: $LogFolderPath"
         }
         # Normalize input pipeline object to SyncTaskConfig
         [SyncTaskConfig]$config = $null
@@ -242,14 +244,34 @@ function Invoke-RcloneSync {
             return
         }
 
-        # Ensure log directory exists
-        if (-not (Test-Path -Path $LogFolderPath -PathType Container)) {
-            New-Item -Path $LogFolderPath -ItemType Directory -Force | Out-Null
+        # Ensure log directory exists, with fallback to temp directory on failure
+        try {
+            if (-not (Test-Path -Path $LogFolderPath -PathType Container)) {
+                New-Item -Path $LogFolderPath -ItemType Directory -Force | Out-Null
+            }
+        }
+        catch {
+            $fallbackPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "RcloneSyncLogs"
+            Write-Warning "Failed to create log directory '$LogFolderPath': $_ . Falling back to temporary directory '$fallbackPath'."
+            $LogFolderPath = $fallbackPath
+            # Attempt to create fallback directory
+            try {
+                if (-not (Test-Path -Path $LogFolderPath -PathType Container)) {
+                    New-Item -Path $LogFolderPath -ItemType Directory -Force | Out-Null
+                }
+            }
+            catch {
+                Write-Error "Cannot create fallback log directory '$LogFolderPath': $_ . Logging will be disabled."
+                # Instead of throwing, we could set LogFolderPath to $null and skip logging,
+                # but spec says we should fail hard if even temp is unusable.
+                throw "Unable to create log directory. Aborting task."
+            }
         }
 
         $timeStamp = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
         $logFileName = "$($config.taskName).$($config.destName).${timeStamp}.log"
         $logFile = Join-Path -Path $LogFolderPath -ChildPath $logFileName
+        Write-Verbose "Log file will be written to: $logFile"
 
         # Build rclone execution arguments
         $cmdArgs = [System.Collections.Generic.List[string]]::new()
@@ -421,6 +443,37 @@ function Show-RcloneSyncMenu {
 
         Write-Host "Invalid selection '$selection'. Please enter a valid index, 'A', or 'Q'." -ForegroundColor Red
     }
+}
+
+# -----------------------------------------------------------------------------
+# Private helper: Get-DefaultLogFolderPath
+# Resolves the default log folder path for Invoke-RcloneSync.
+# -----------------------------------------------------------------------------
+function Get-DefaultLogFolderPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $scriptRoot = $PSScriptRoot
+    $oldLogPath = Join-Path -Path $scriptRoot -ChildPath "logs"
+
+    if (Test-Path -Path $oldLogPath -PathType Container) {
+        $logFiles = Get-ChildItem -Path $oldLogPath -Filter "*.log" -File -ErrorAction SilentlyContinue
+        if ($logFiles.Count -gt 0) {
+            return $oldLogPath
+        }
+    }
+
+    $isWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+    if ($isWindows) {
+        $base = [Environment]::GetFolderPath('ApplicationData')
+        $userLogPath = Join-Path -Path $base -ChildPath "PS_RcloneSync\logs"
+    } else {
+        $home = [Environment]::GetEnvironmentVariable('HOME')
+        $userLogPath = Join-Path -Path $home -ChildPath ".local/state/ps_rclonesync/logs"
+    }
+
+    return $userLogPath
 }
 
 # Export public module cmdlets
