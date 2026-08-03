@@ -171,7 +171,7 @@ function Get-RcloneSyncConfig {
             }
 
             try {
-                $rawJson = Get-Content -Path $filePath -Raw -ErrorAction Stop
+                $rawJson = Get-Content -Path $filePath -Raw -Encoding UTF8 -ErrorAction Stop
                 $objects = $rawJson | ConvertFrom-Json -ErrorAction Stop
 
                 foreach ($obj in $objects) {
@@ -320,7 +320,7 @@ function Invoke-RcloneSync {
                 }
                 else {
                     $isNothingToTransfer = $false
-                    $rawLogLines = @(Get-Content -Path $logFile -ErrorAction SilentlyContinue)
+                    $rawLogLines = @(Get-Content -Path $logFile -Encoding UTF8 -ErrorAction SilentlyContinue)
 
                     foreach ($line in $rawLogLines) {
                         if ([string]::IsNullOrWhiteSpace($line)) { continue }
