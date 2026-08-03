@@ -59,6 +59,99 @@ class SyncTaskConfig {
 }
 
 # -----------------------------------------------------------------------------
+# Private helper: ConvertTo-ArgTokens
+# Quote-aware tokenizer for the rcloneFlags string. Splits on unquoted
+# whitespace while preserving the contents of single- or double-quoted
+# spans (quote characters themselves are stripped from the output).
+#
+# This is a "deep module": the public surface is a single input string in,
+# a single string[] out, with no side effects and no dependency on module
+# state. All complexity (quote tracking, malformed-input detection) is
+# hidden inside. It is intentionally NOT exported — it is an internal
+# implementation detail of Invoke-RcloneSync's flag parsing, not part of
+# the module's public contract.
+#
+# Supported:
+#   - Paired double quotes:  --exclude "file with space"
+#   - Paired single quotes:  --include 'a b c'
+#   - Quotes after '=':      --include="a b c"  ->  --include=a b c
+#
+# Not supported (by design, see spec Non-goals):
+#   - Escaped quote characters inside a quoted span (e.g. \")
+#   - Mixed/nested quoting (e.g. "it's a test")
+#
+# Throws on unmatched/unterminated quotes rather than silently guessing,
+# so a malformed config fails loudly instead of producing a subtly wrong
+# rclone command line.
+# -----------------------------------------------------------------------------
+function ConvertTo-ArgTokens {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$InputString
+    )
+
+    $tokens = [System.Collections.Generic.List[string]]::new()
+
+    if ([string]::IsNullOrWhiteSpace($InputString)) {
+        return , $tokens.ToArray()
+    }
+
+    $current = [System.Text.StringBuilder]::new()
+    $quoteChar = $null      # $null when outside a quoted span; '"' or "'" while inside one
+    $tokenHasContent = $false
+
+    for ($i = 0; $i -lt $InputString.Length; $i++) {
+        $ch = $InputString[$i]
+
+        if ($null -ne $quoteChar) {
+            # Inside a quoted span: everything is literal until the matching quote.
+            if ($ch -eq $quoteChar) {
+                $quoteChar = $null
+            }
+            else {
+                [void]$current.Append($ch)
+            }
+            continue
+        }
+
+        if ($ch -eq '"' -or $ch -eq "'") {
+            # Enter a quoted span. Marks the token as having content even if
+            # the quoted span turns out to be empty (e.g. --exclude "").
+            $quoteChar = $ch
+            $tokenHasContent = $true
+            continue
+        }
+
+        if ([char]::IsWhiteSpace($ch)) {
+            if ($tokenHasContent) {
+                $tokens.Add($current.ToString())
+                [void]$current.Clear()
+                $tokenHasContent = $false
+            }
+            continue
+        }
+
+        [void]$current.Append($ch)
+        $tokenHasContent = $true
+    }
+
+    if ($null -ne $quoteChar) {
+        throw "Unmatched quote in rcloneFlags: '$InputString'"
+    }
+
+    if ($tokenHasContent) {
+        $tokens.Add($current.ToString())
+    }
+
+    # The unary comma prevents PowerShell from unrolling a single/empty
+    # array back into scalars/nothing across the function-return boundary.
+    return , $tokens.ToArray()
+}
+
+# -----------------------------------------------------------------------------
 # Cmdlet: Get-RcloneSyncConfig
 # Loads JSON configuration files and emits SyncTaskConfig objects to the pipeline.
 # -----------------------------------------------------------------------------
@@ -96,6 +189,14 @@ function Get-RcloneSyncConfig {
 # -----------------------------------------------------------------------------
 # Cmdlet: Invoke-RcloneSync
 # Executes rclone sync task. Native support for -WhatIf and pipeline input.
+#
+# NOTE (step 3 of 4): after invoking rclone, $LASTEXITCODE is now checked.
+# A non-zero exit code is treated as a per-task failure: Write-Error +
+# return (non-terminating - the pipeline continues to the next task), and
+# the log-cleanup logic below is skipped entirely so the log file is
+# unconditionally retained for troubleshooting. This is layered on top of
+# the step 2 tokenizer change; log-cleanup behavior on the success path
+# (exit code 0) is unchanged.
 # -----------------------------------------------------------------------------
 function Invoke-RcloneSync {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -168,7 +269,7 @@ function Invoke-RcloneSync {
         $cmdArgs.Add("--log-file=$logFile")
 
         if (-not [string]::IsNullOrWhiteSpace($config.rcloneFlags)) {
-            $flagTokens = $config.rcloneFlags -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            $flagTokens = ConvertTo-ArgTokens -InputString $config.rcloneFlags
             foreach ($token in $flagTokens) {
                 if ($token -ne "--use-json-log") {
                     $cmdArgs.Add($token)
@@ -186,9 +287,27 @@ function Invoke-RcloneSync {
         # Execute process safely
         try {
             & $RclonePath @cmdArgs
+            # Capture $LASTEXITCODE immediately, inside the same try block and
+            # right after invocation, before any other statement has a chance
+            # to silently overwrite this automatic variable.
+            $rcloneExitCode = $LASTEXITCODE
         }
         catch {
+            # This branch only fires when the invocation itself could not
+            # start (e.g. executable not found) - a distinct failure mode
+            # from "process ran and returned a non-zero exit code" below.
             Write-Error "Failed to execute rclone for task '$($config.taskName)': $_"
+            return
+        }
+
+        # A non-zero exit code means rclone ran but reported failure. Treat
+        # every non-zero code uniformly as failure (no severity tiering).
+        # This is non-terminating: log the error and move on to the next
+        # pipeline item rather than aborting the whole batch. The log file
+        # is deliberately left in place (log cleanup below is skipped
+        # entirely) so it remains available for troubleshooting.
+        if ($rcloneExitCode -ne 0) {
+            Write-Error "Task '$($config.taskName)' failed: rclone exited with code $rcloneExitCode. Log file retained for troubleshooting at '$logFile'."
             return
         }
 
@@ -305,4 +424,6 @@ function Show-RcloneSyncMenu {
 }
 
 # Export public module cmdlets
+# ConvertTo-ArgTokens is intentionally NOT exported - it is a private
+# implementation detail, not part of the module's public contract.
 Export-ModuleMember -Function Get-RcloneSyncConfig, Invoke-RcloneSync, Show-RcloneSyncMenu
