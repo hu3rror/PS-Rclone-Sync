@@ -21,8 +21,8 @@
 #>
 
 param(
-    [string]$ModulePath = (Join-Path -Path $PSScriptRoot -ChildPath "RcloneSync.psm1"),
-    [string]$ExampleConfigPath = (Join-Path -Path $PSScriptRoot -ChildPath "config.json.example")
+    [string]$ModulePath = (Join-Path -Path (Split-Path $PSScriptRoot -Parent) -ChildPath "RcloneSync.psm1"),
+    [string]$ExampleConfigPath = (Join-Path -Path (Split-Path $PSScriptRoot -Parent) -ChildPath "config.json.example")
 )
 
 if (-not (Test-Path -Path $ModulePath -PathType Leaf)) {

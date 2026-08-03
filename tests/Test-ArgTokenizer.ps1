@@ -13,7 +13,7 @@
 #>
 
 param(
-    [string]$ModulePath = (Join-Path -Path $PSScriptRoot -ChildPath "RcloneSync.psm1")
+    [string]$ModulePath = (Join-Path -Path (Split-Path $PSScriptRoot -Parent) -ChildPath "RcloneSync.psm1")
 )
 
 if (-not (Test-Path -Path $ModulePath -PathType Leaf)) {
