@@ -7,7 +7,8 @@
 ## 核心特性
 
 - **面向对象架构**：基于强类型 `SyncTaskConfig` 类实现，支持路径与参数的快速失败（Fail-Fast）校验。
-- **PowerShell 模块与管道支持**：核心功能导出为标准函数（`Get-RcloneSyncConfig`、`Invoke-RcloneSync`、`Show-RcloneSyncMenu`），全面支持管道操作。
+- **PowerShell 模块与管道支持**：核心功能导出为标准函数（`Invoke-EnvFile`、`Get-RcloneSyncConfig`、`Invoke-RcloneSync`、`Show-RcloneSyncMenu`），全面支持管道操作。
+- **`.env` 文件支持**：可从脚本根目录的可选 `.env` 文件加载环境变量（例如用于解密加密 rclone 配置的 `RCLONE_CONFIG_PASS`）。变量在同步前注入，并在结束后自动清理。
 - **交互式 CLI 菜单**：自动扫描 `configs/` 目录及脚本根目录下的 `.json` 配置，支持交互式单选或批量执行。
 - **原生 WhatIf 与 Confirm**：原生集成 PowerShell `-WhatIf` 与 `-Confirm` 开关，支持预检（Dry-Run）操作。
 - **结构化日志与清理机制**：
@@ -50,6 +51,52 @@
 | `-Confirm` | `switch` | `$false` | 在执行前请求确认。 |
 
 > 提示：使用 `-Verbose` 可查看日志路径决策过程及详细运行信息。
+
+## 环境变量文件（.env）
+
+脚本会在同步前自动加载**脚本根目录**（即 `RcloneSync.ps1` 所在目录）中的可选 `.env` 文件。每行 `KEY=VALUE` 都会注入到 PowerShell 进程环境中，供本次运行中的每一次 rclone 调用使用。
+
+此功能对**加密的 rclone 配置**尤其有用：在 `.env` 中设置 `RCLONE_CONFIG_PASS`，即可让 rclone 自动解密 `rclone.conf`，无需交互式输入密码。
+
+```text
+# .env （脚本根目录）
+RCLONE_CONFIG_PASS=你的配置加密密码
+RCLONE_VERBOSE=1
+```
+
+### `.env` 解析规则
+
+- 每行遵循 `KEY=VALUE` 格式，键与值两端的空白会被去除（Trim）。
+- 以 `#` 开头的行与空行会被忽略。
+- 值中可以包含 `=`（只在第一个 `=` 处切分行）。
+- `KEY=` 表示将变量设置为空字符串。
+- 兼容 Bash 风格的 `export KEY=VALUE` 前缀，会自动去除。
+- 重复的键以**最后一次**出现为准。
+- 文件按 UTF-8 编码读取。
+
+### 行为与安全
+
+- `.env` 文件缺失**不视为错误**——会被静默跳过（仅 `-Verbose` 时可见）。
+- 注入的变量会在同步管道执行完毕后从环境中移除（即使任务抛出异常也会执行清理）。
+- `.env` 中的值会**覆盖**当前会话中同名变量的已有值。
+- `.env` 文件已加入 `.gitignore`，避免误提交凭据。
+- `-Verbose` 输出只会列出环境变量的**名称**，绝不会打印其值，确保密钥不会泄露到控制台。
+
+### 直接使用 `Invoke-EnvFile`
+
+`Invoke-EnvFile` 同样作为公共 Cmdlet 导出，可在你自己的脚本中使用：
+
+```powershell
+Import-Module .\RcloneSync.psd1
+
+# 加载 .env 文件并注入变量；返回被设置的键列表
+$keys = Invoke-EnvFile -Path "C:\path\to\.env" -Verbose
+
+# ... 执行任务 ...
+
+# 清理注入的变量
+foreach ($k in $keys) { Remove-Item "Env:\$k" -ErrorAction SilentlyContinue }
+```
 
 ### 1. 交互模式（默认）
 

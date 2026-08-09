@@ -51,13 +51,30 @@ try {
         }
     }
 
-    # Execute sync via PowerShell Pipeline chaining
-    foreach ($cfgFile in $targetConfigFiles) {
-        Write-Host ">>> Processing Config: $cfgFile" -ForegroundColor Green
+    # Load the optional .env file from the script root and inject its
+    # KEY=VALUE pairs into the process environment (e.g. RCLONE_CONFIG_PASS
+    # for decrypting an encrypted rclone config). This is optional and
+    # non-fatal - a missing .env file is silently skipped.
+    $envFileKeys = Invoke-EnvFile -Path (Join-Path $PSScriptRoot '.env')
 
-        # Pipeline: Get-RcloneSyncConfig | Invoke-RcloneSync
-        Get-RcloneSyncConfig -Path $cfgFile |
-            Invoke-RcloneSync -RclonePath $RclonePath -LogFolderPath $LogFolderPath
+    # Execute sync via PowerShell Pipeline chaining.
+    try {
+        foreach ($cfgFile in $targetConfigFiles) {
+            Write-Host ">>> Processing Config: $cfgFile" -ForegroundColor Green
+
+            # Pipeline: Get-RcloneSyncConfig | Invoke-RcloneSync
+            Get-RcloneSyncConfig -Path $cfgFile |
+                Invoke-RcloneSync -RclonePath $RclonePath -LogFolderPath $LogFolderPath
+        }
+    }
+    finally {
+        # Remove every environment variable injected from .env so that
+        # credentials (e.g. RCLONE_CONFIG_PASS) do not leak to subsequent
+        # commands in this session after the sync pipeline completes.
+        # The finally block guarantees cleanup even if a task throws.
+        foreach ($envKey in $envFileKeys) {
+            Remove-Item "Env:\$envKey" -ErrorAction SilentlyContinue
+        }
     }
 }
 catch {

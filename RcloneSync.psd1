@@ -10,7 +10,7 @@
     PowerShellVersion = '5.1'
 
     # Functions to export from this module
-    FunctionsToExport = @('Get-RcloneSyncConfig', 'Invoke-RcloneSync', 'Show-RcloneSyncMenu')
+    FunctionsToExport = @('Invoke-EnvFile', 'Get-RcloneSyncConfig', 'Invoke-RcloneSync', 'Show-RcloneSyncMenu')
 
     # Cmdlets to export from this module
     CmdletsToExport = @()

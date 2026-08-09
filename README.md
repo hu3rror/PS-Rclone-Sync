@@ -7,7 +7,8 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 ## Key Features
 
 - **Class-Based Architecture**: Strongly-typed `SyncTaskConfig` configuration object with fail-fast path and parameter validation.
-- **PowerShell Module & Pipeline Support**: Core functionality exported as reusable functions (`Get-RcloneSyncConfig`, `Invoke-RcloneSync`, `Show-RcloneSyncMenu`).
+- **PowerShell Module & Pipeline Support**: Core functionality exported as reusable functions (`Invoke-EnvFile`, `Get-RcloneSyncConfig`, `Invoke-RcloneSync`, `Show-RcloneSyncMenu`).
+- **`.env` File Support**: Loads environment variables (e.g. `RCLONE_CONFIG_PASS` for decrypting an encrypted rclone config) from an optional `.env` file in the script root. Variables are injected before sync and cleaned up automatically afterward.
 - **Interactive CLI Menu**: Auto-discovers `.json` task files in the `configs/` folder and root script directory for easy interactive selection.
 - **Native WhatIf & Confirm Support**: Supports standard PowerShell `-WhatIf` and `-Confirm` switches for dry-run safety checks.
 - **Structured JSON Logging & Auto-Cleanup**:
@@ -50,6 +51,52 @@ A strongly-typed, modular PowerShell automation solution for managing and execut
 | `-Confirm` | `switch` | `$false` | Prompt for confirmation before each action. |
 
 > Tip: Use `-Verbose` to see the log path decision process and detailed runtime messages.
+
+## Environment File (.env)
+
+An optional `.env` file in the **script root directory** (next to `RcloneSync.ps1`) is loaded automatically before sync runs. Each `KEY=VALUE` line is injected into the PowerShell process environment, making it available to every rclone invocation in the run.
+
+This is especially useful for **encrypted rclone configs**: set `RCLONE_CONFIG_PASS` in `.env` so rclone can decrypt `rclone.conf` without prompting for the password interactively.
+
+```text
+# .env  (script root)
+RCLONE_CONFIG_PASS=your-config-encryption-password
+RCLONE_VERBOSE=1
+```
+
+### `.env` Parsing Rules
+
+- Lines follow `KEY=VALUE`; both key and value are trimmed of surrounding whitespace.
+- Lines starting with `#` and blank lines are ignored.
+- Values may contain `=` (only the first `=` splits the line).
+- A `KEY=` entry sets the variable to an empty string.
+- A Bash-style `export KEY=VALUE` prefix is accepted and stripped.
+- Duplicate keys resolve to the **last** occurrence.
+- The file is read as UTF-8.
+
+### Behavior & Security
+
+- A missing `.env` file is **not an error** — it is silently skipped (visible only with `-Verbose`).
+- Injected variables are removed from the environment **after** the sync pipeline completes (even if a task throws).
+- `.env` values **override** any existing variable of the same name in the current session.
+- The `.env` file is added to `.gitignore` to prevent accidental credential commits.
+- `-Verbose` output lists only environment variable **names**, never their values, so secrets are not printed to the console.
+
+### Using `Invoke-EnvFile` Directly
+
+`Invoke-EnvFile` is also exported as a public cmdlet for use in your own scripts:
+
+```powershell
+Import-Module .\RcloneSync.psd1
+
+# Load a .env file and inject its variables; returns the list of keys set
+$keys = Invoke-EnvFile -Path "C:\path\to\.env" -Verbose
+
+# ... run tasks ...
+
+# Clean up the injected variables
+foreach ($k in $keys) { Remove-Item "Env:\$k" -ErrorAction SilentlyContinue }
+```
 
 ### 1. Interactive Execution (Default)
 

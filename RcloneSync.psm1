@@ -187,6 +187,100 @@ function Get-RcloneSyncConfig {
 }
 
 # -----------------------------------------------------------------------------
+# Cmdlet: Invoke-EnvFile
+# Loads a general-purpose .env file and injects KEY=VALUE pairs into the
+# current process environment. Returns the list of keys that were set.
+#
+# Level 1 parsing (plus a Bash-style 'export ' prefix convenience):
+#   - KEY=VALUE            -> sets $env:KEY = VALUE (key and value trimmed)
+#   - KEY=                 -> sets $env:KEY = ""
+#   - export KEY=VALUE     -> 'export ' prefix is stripped before parsing
+#   - # comment / blank    -> skipped silently
+#   - line without '='     -> skipped with a verbose message
+#   - duplicate key        -> last occurrence wins (overwrites earlier)
+#   - encoding             -> explicit UTF-8 for cross-version consistency
+#
+# The .env file is optional: a missing file is not an error and yields an
+# empty result. Native -WhatIf and -Verbose are supported; neither ever
+# prints environment variable values (only key names). Because the injected
+# variables persist in the session, callers are responsible for cleaning
+# them up (e.g. via a finally block) when they are no longer needed.
+#
+# This is intentionally a stateless, side-effectful cmdlet: each call
+# re-reads the file and (re)sets every variable, so it is idempotent and
+# suitable for reuse from the module's public API.
+# -----------------------------------------------------------------------------
+function Invoke-EnvFile {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
+    [OutputType([string[]])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $loadedKeys = [System.Collections.Generic.List[string]]::new()
+
+    # A missing .env file is not an error - it is optional. Report via
+    # verbose and return an empty list so callers can treat it uniformly.
+    if (-not (Test-Path -Path $Path -PathType Leaf)) {
+        Write-Verbose "No .env file found at '$Path'. Skipping."
+        return , @()
+    }
+
+    try {
+        $lines = @(Get-Content -Path $Path -Encoding UTF8 -ErrorAction Stop)
+    }
+    catch {
+        Write-Verbose "Failed to read .env file '$Path': $_"
+        return , @()
+    }
+
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        $trimmed = $line.Trim()
+
+        # Skip full-line comments.
+        if ($trimmed.StartsWith('#')) {
+            continue
+        }
+
+        # Optional Bash-style 'export ' prefix - strip it before parsing.
+        if ($trimmed.StartsWith('export ', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $trimmed = $trimmed.Substring('export '.Length).TrimStart()
+        }
+
+        # Split on the first '=' only, so values may themselves contain '='.
+        $eqIndex = $trimmed.IndexOf('=')
+        if ($eqIndex -lt 0) {
+            Write-Verbose "Skipping malformed line (no '='): '$line'"
+            continue
+        }
+
+        $key = $trimmed.Substring(0, $eqIndex).Trim()
+        $value = $trimmed.Substring($eqIndex + 1).Trim()
+
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            Write-Verbose "Skipping malformed line (empty key): '$line'"
+            continue
+        }
+
+        if ($PSCmdlet.ShouldProcess($key, "Set environment variable")) {
+            Set-Item -Path "Env:\$key" -Value $value
+            if (-not $loadedKeys.Contains($key)) {
+                $loadedKeys.Add($key)
+            }
+        }
+    }
+
+    # The unary comma prevents PowerShell from unrolling a single/empty
+    # array back into scalars/nothing across the function-return boundary.
+    return , $loadedKeys.ToArray()
+}
+
+# -----------------------------------------------------------------------------
 # Cmdlet: Invoke-RcloneSync
 # Executes rclone sync task. Native support for -WhatIf and pipeline input.
 #
@@ -479,4 +573,4 @@ function Get-DefaultLogFolderPath {
 # Export public module cmdlets
 # ConvertTo-ArgTokens is intentionally NOT exported - it is a private
 # implementation detail, not part of the module's public contract.
-Export-ModuleMember -Function Get-RcloneSyncConfig, Invoke-RcloneSync, Show-RcloneSyncMenu
+Export-ModuleMember -Function Invoke-EnvFile, Get-RcloneSyncConfig, Invoke-RcloneSync, Show-RcloneSyncMenu
